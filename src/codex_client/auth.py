@@ -15,9 +15,7 @@ import zlib
 from pathlib import Path
 from typing import IO, Optional, Callable
 
-
-class CodexAuthError(RuntimeError):
-    """Base exception raised for Codex authentication helper errors."""
+from .exceptions import AuthenticationError
 
 
 class LoginSession:
@@ -95,7 +93,7 @@ class LoginSession:
         self._drain_queue(0)
         if self.url:
             return self.url
-        raise CodexAuthError("codex login did not provide an authorization URL")
+        raise AuthenticationError("codex login did not provide an authorization URL")
 
     def wait(self, poll_interval: float = 0.5) -> bool:
         """Block until the subprocess exits, returning True on success output."""
@@ -135,7 +133,7 @@ class CodexAuth:
         """Return True when auth.json exists and contains usable credentials."""
         try:
             auth = self._read_auth_json()
-        except (FileNotFoundError, CodexAuthError):
+        except (FileNotFoundError, AuthenticationError):
             return False
 
         api_key = auth.get("OPENAI_API_KEY")
@@ -155,8 +153,8 @@ class CodexAuth:
         """Start `codex login` and return a session object tracking its progress."""
         with self._process_lock:
             if self._login_process and self._login_process.poll() is None:
-                raise CodexAuthError("codex login is already running")
-            
+                raise AuthenticationError("codex login is already running")
+
             process = subprocess.Popen(
                 [self._codex_command, "login"],
                 stdout=subprocess.PIPE,
@@ -199,7 +197,7 @@ class CodexAuth:
             text=True,
         )
         if result.returncode not in (0, 1):
-            raise CodexAuthError(
+            raise AuthenticationError(
                 f"codex logout failed with exit code {result.returncode}: {result.stderr.strip()}"
             )
 
@@ -242,12 +240,12 @@ class CodexAuth:
         except FileNotFoundError:
             raise
         except OSError as exc:
-            raise CodexAuthError(f"unable to read auth.json: {exc}") from exc
+            raise AuthenticationError(f"unable to read auth.json: {exc}") from exc
 
         try:
             return json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise CodexAuthError(f"invalid auth.json contents: {exc}") from exc
+            raise AuthenticationError(f"invalid auth.json contents: {exc}") from exc
 
     def _auth_file_path(self) -> Path:
         return self._resolve_codex_home() / "auth.json"
@@ -259,20 +257,20 @@ class CodexAuth:
             try:
                 return path.resolve(strict=True)
             except FileNotFoundError as exc:
-                raise CodexAuthError(
+                raise AuthenticationError(
                     f"CODEX_HOME points to a non-existent path: {path}"
                 ) from exc
 
         try:
             home = Path.home()
         except (RuntimeError, OSError) as exc:
-            raise CodexAuthError("unable to determine user home directory") from exc
+            raise AuthenticationError("unable to determine user home directory") from exc
         return home / ".codex"
 
     def _decode_oauth_payload(self, oauth: str) -> dict:
         trimmed = oauth.strip()
         if not trimmed:
-            raise CodexAuthError("empty auth payload provided")
+            raise AuthenticationError("empty auth payload provided")
 
         # Preferred format: urlsafe base64 of zlib-compressed JSON
         try:
@@ -292,7 +290,7 @@ class CodexAuth:
         try:
             return json.loads(trimmed)
         except json.JSONDecodeError as exc:
-            raise CodexAuthError("oauth payload must decode to valid JSON") from exc
+            raise AuthenticationError("oauth payload must decode to valid JSON") from exc
 
     def _encode_auth_payload(self, payload: dict) -> str:
         data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")

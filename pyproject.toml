@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [project.scripts]
-codex-client = "codex_sdk.cli:main"
+codex-client = "codex_client.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/cheolwanpark/codex-client"

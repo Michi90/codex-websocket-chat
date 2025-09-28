@@ -1,7 +1,7 @@
-"""Codex SDK - A minimal library for programmatic control of Codex.
+"""Codex Client - A minimal library for programmatic control of Codex.
 
 Example:
-    from codex_sdk import Client
+    from codex_client import Client
 
     async with Client() as client:
         chat = await client.create_chat("Hello, Codex!")
@@ -23,7 +23,14 @@ from .config import (
     ReasoningEffort,
     Verbosity,
 )
-from .exceptions import CodexError, ConnectionError, ChatError, ToolError
+from .exceptions import (
+    CodexError,
+    ConnectionError,
+    ChatError,
+    ToolError,
+    AuthenticationError,
+    MiddlewareError,
+)
 from .event import (
     AgentMessageDeltaEvent,
     AgentMessageEvent,
@@ -63,6 +70,8 @@ __all__ = [
     "ConnectionError",
     "ChatError",
     "ToolError",
+    "AuthenticationError",
+    "MiddlewareError",
 
     # Config
     "CodexChatConfig",

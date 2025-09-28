@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for codex_sdk library.
+Test script for codex_client library.
 
 This script demonstrates the usage pattern:
 - Takes user input
@@ -10,13 +10,13 @@ This script demonstrates the usage pattern:
 
 import asyncio
 import sys
-from src.codex_sdk import *
-from src.codex_sdk.event import (
+from src.codex_client import *
+from src.codex_client.event import (
     McpToolCallBeginEvent, McpToolCallEndEvent,
     SessionConfiguredEvent, TaskCompleteEvent, TaskStartedEvent,
     TokenCountEvent
 )
-from src.codex_sdk.structured import (
+from src.codex_client.structured import (
     AssistantMessageStream,
     CommandStream,
     ReasoningStream,
@@ -25,7 +25,7 @@ from src.codex_sdk.structured import (
 
 
 async def main():
-    print("🚀 Codex SDK Test")
+    print("🚀 Codex Client Test")
     print("=" * 40)
 
     # Get user input
@@ -52,19 +52,7 @@ async def main():
                     reasoning_effort=ReasoningEffort.MINIMAL,
                     verbosity=Verbosity.HIGH,
                     sandbox=SandboxMode.DANGER_FULL_ACCESS,
-                ),
-                mcp_servers=[
-                    CodexMcpServer(
-                        name="context7",
-                        command="npx",
-                        args=[
-                            "-y",
-                            "@upstash/context7-mcp",
-                            "--api-key",
-                            "ctx7sk-93e85b8b-f1c1-47b9-886a-0be32c255f1f",
-                        ],
-                    )
-                ]
+                )
             )
             chat = await client.create_chat(prompt, config=config)
             

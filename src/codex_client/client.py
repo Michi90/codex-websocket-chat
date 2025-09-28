@@ -58,7 +58,7 @@ class Client:
         except Exception as exc:
             if self._exit_stack:
                 await self._exit_stack.aclose()
-            raise ConnectionError(f"Failed to connect to Codex MCP server: {exc}")
+            raise ConnectionError("Failed to connect to Codex MCP server") from exc
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         if self._exit_stack:
@@ -125,9 +125,6 @@ class Client:
         tool_args: Dict[str, Any],
     ) -> Tuple[asyncio.Task, Optional[AsyncIterator[AllEvents]]]:
         session = self._ensure_session()
-
-        import json
-        print(json.dumps(tool_args, indent=2))
 
         if _middleware:
             _middleware.clear_events()

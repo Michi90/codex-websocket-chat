@@ -39,7 +39,7 @@ codex-client logout
 On the receiving machine you can also drop straight into Python:
 
 ```python
-from codex_sdk.auth import CodexAuth
+from codex_client.auth import CodexAuth
 
 auth = CodexAuth(codex_command="codex-client")
 auth.set("<payload-from-read>")
@@ -49,17 +49,17 @@ token = auth.read()
 
 ## Core Concepts
 
-- **Client lifecycle** – `codex_sdk.Client` manages the background MCP session. Use it as an async context manager to guarantee clean startup and teardown.
-- **Chats** – `codex_sdk.Chat` represents an ongoing conversation. Iterate over it for raw events, call `await chat.get()` for the final assistant reply, and `await chat.resume(...)` to continue the dialogue.
-- **Configuration** – `CodexChatConfig`, `CodexProfile`, and `CodexMcpServer` (in `codex_sdk.config`) serialize options Codex expects: models, sandboxing, approval policy, working directory, environment overrides, MCP servers, and more.
-- **Structured streaming** – Helpers in `codex_sdk.structured` (`structured`, `AssistantMessageStream`, `ReasoningStream`, `CommandStream`) aggregate low-level deltas into convenient async streams.
-- **Events & errors** – All event dataclasses live in `codex_sdk.event`; exceptions (`CodexError`, `ChatError`, `ToolError`, etc.) live in `codex_sdk.exceptions` so you can handle failures precisely.
+- **Client lifecycle** – `codex_client.Client` manages the background MCP session. Use it as an async context manager to guarantee clean startup and teardown.
+- **Chats** – `codex_client.Chat` represents an ongoing conversation. Iterate over it for raw events, call `await chat.get()` for the final assistant reply, and `await chat.resume(...)` to continue the dialogue.
+- **Configuration** – `CodexChatConfig`, `CodexProfile`, and `CodexMcpServer` (in `codex_client.config`) serialize options Codex expects: models, sandboxing, approval policy, working directory, environment overrides, MCP servers, and more.
+- **Structured streaming** – Helpers in `codex_client.structured` (`structured`, `AssistantMessageStream`, `ReasoningStream`, `CommandStream`) aggregate low-level deltas into convenient async streams.
+- **Events & errors** – All event dataclasses live in `codex_client.event`; exceptions (`CodexError`, `ChatError`, `ToolError`, etc.) live in `codex_client.exceptions` so you can handle failures precisely.
 
 ## Usage Example
 
 ```python
 import asyncio
-from codex_sdk import (
+from codex_client import (
     Client,
     CodexChatConfig,
     CodexProfile,
@@ -68,7 +68,7 @@ from codex_sdk import (
     SandboxMode,
     Verbosity,
 )
-from codex_sdk.structured import structured, AssistantMessageStream, ReasoningStream, CommandStream
+from codex_client.structured import structured, AssistantMessageStream, ReasoningStream, CommandStream
 
 async def run(prompt: str) -> None:
     config = CodexChatConfig(

@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 from ..event import AllEvents
+from ..exceptions import MiddlewareError
 from .parser import parse_event_from_message
 
 
@@ -38,10 +39,10 @@ class CodexEventFilter(logging.Filter):
     def _queue_event(self, event: AllEvents) -> None:
         try:
             self._event_queue.put_nowait(event)
-        except asyncio.QueueFull:
-            pass
-        except Exception:
-            pass
+        except asyncio.QueueFull as exc:
+            raise MiddlewareError("event queue is full while capturing Codex events") from exc
+        except Exception as exc:
+            raise MiddlewareError("failed to enqueue Codex event") from exc
 
 
 __all__ = ["CodexEventFilter"]

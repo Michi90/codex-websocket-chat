@@ -1,11 +1,12 @@
-"""Command-line interface for Codex SDK authentication helpers."""
+"""Command-line interface for Codex Client authentication helpers."""
 from __future__ import annotations
 
 import argparse
 import sys
 from typing import TextIO
 
-from .auth import CodexAuth, CodexAuthError
+from .auth import CodexAuth
+from .exceptions import AuthenticationError
 
 
 class _Console:
@@ -83,7 +84,7 @@ class _Console:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Codex SDK authentication helper")
+    parser = argparse.ArgumentParser(description="Codex Client authentication helper")
     subparsers = parser.add_subparsers(dest="command")
 
     login_parser = subparsers.add_parser("login", help="Start login flow and show URL")
@@ -103,7 +104,7 @@ def _cmd_login(auth: CodexAuth) -> int:
 
     try:
         session = auth.login()
-    except CodexAuthError as exc:
+    except AuthenticationError as exc:
         err_console.status("error", f"Login failed: {exc}")
         return 1
 
@@ -173,7 +174,7 @@ def _cmd_logout(auth: CodexAuth) -> int:
 
     try:
         auth.logout()
-    except CodexAuthError as exc:
+    except AuthenticationError as exc:
         err_console.status("error", f"Logout failed: {exc}")
         return 1
 
@@ -196,7 +197,7 @@ def _cmd_read(auth: CodexAuth) -> int:
 
     try:
         payload = auth.read()
-    except CodexAuthError as exc:
+    except AuthenticationError as exc:
         err_console.status("error", f"Read failed: {exc}")
         return 1
     except FileNotFoundError:
@@ -224,7 +225,7 @@ def _cmd_read(auth: CodexAuth) -> int:
     console.blank()
     console.section("Use in Python")
     console.block(
-        "from codex_sdk.auth import CodexAuth\n"
+        "from codex_client.auth import CodexAuth\n"
         "auth = CodexAuth(codex_command=\"codex-client\")\n"
         "auth.set(\"<payload>\")  # paste the string above\n"
     )
@@ -237,7 +238,7 @@ def _cmd_set(auth: CodexAuth, payload: str) -> int:
 
     try:
         auth.set(payload)
-    except CodexAuthError as exc:
+    except AuthenticationError as exc:
         err_console.status("error", f"Set failed: {exc}")
         return 1
 
