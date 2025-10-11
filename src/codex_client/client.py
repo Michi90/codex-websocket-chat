@@ -29,7 +29,7 @@ class Client:
         **_: Any,
     ) -> None:
         if args is None:
-            args = ["mcp", "serve"]
+            args = ["mcp-server"]
 
         self._server_params = StdioServerParameters(
             command=command,

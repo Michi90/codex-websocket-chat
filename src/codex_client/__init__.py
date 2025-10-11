@@ -17,6 +17,8 @@ from .chat import Chat
 from .config import (
     CodexChatConfig,
     CodexMcpServer,
+    CodexStdioMcpServer,
+    CodexHttpMcpServer,
     CodexProfile,
     ApprovalPolicy,
     SandboxMode,
@@ -77,6 +79,8 @@ __all__ = [
     "CodexChatConfig",
     "CodexProfile",
     "CodexMcpServer",
+    "CodexStdioMcpServer",
+    "CodexHttpMcpServer",
     "ApprovalPolicy",
     "SandboxMode",
     "ReasoningEffort",

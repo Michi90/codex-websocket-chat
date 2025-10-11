@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
@@ -60,33 +60,65 @@ class Verbosity(str, Enum):
     HIGH = "high"
 
 
-class CodexMcpServer(BaseModel):
-    """Configuration for an MCP server that Codex can launch."""
+class CodexMcpServerBase(BaseModel):
+    """Base configuration for MCP servers with shared fields."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    command: str
-    args: Optional[List[str]] = None
-    envs: Optional[Dict[str, str]] = None
     setup_timeout_sec: Optional[int] = None
     tool_timeout_sec: Optional[int] = None
+
+    def _get_payload(self) -> Dict[str, Any]:
+        """Get the server-specific payload for serialization."""
+        raise NotImplementedError("Subclasses must implement _get_payload")
 
     @model_serializer(mode="plain")
     def _serialize(self) -> Dict[str, Dict[str, Any]]:
         """Produce the config block keyed by snake_cased server name."""
-
         key = f"mcp_servers.{_snake_case(self.name)}"
-        payload: Dict[str, Any] = {"command": self.command}
-        if self.args is not None:
-            payload["args"] = self.args
-        if self.envs is not None:
-            payload["envs"] = self.envs
+        payload = self._get_payload()
         if self.setup_timeout_sec is not None:
             payload["setup_timeout_sec"] = self.setup_timeout_sec
         if self.tool_timeout_sec is not None:
             payload["tool_timeout_sec"] = self.tool_timeout_sec
         return {key: payload}
+
+
+class CodexStdioMcpServer(CodexMcpServerBase):
+    """Configuration for stdio-based MCP servers."""
+
+    type: Literal["stdio"] = "stdio"
+    command: str
+    args: Optional[List[str]] = None
+    envs: Optional[Dict[str, str]] = None
+
+    def _get_payload(self) -> Dict[str, Any]:
+        """Build payload for stdio server configuration."""
+        payload: Dict[str, Any] = {"command": self.command}
+        if self.args is not None:
+            payload["args"] = self.args
+        if self.envs is not None:
+            payload["envs"] = self.envs
+        return payload
+
+
+class CodexHttpMcpServer(CodexMcpServerBase):
+    """Configuration for HTTP-based MCP servers."""
+
+    type: Literal["http"] = "http"
+    url: str
+    bearer_token_env_var: Optional[str] = None
+
+    def _get_payload(self) -> Dict[str, Any]:
+        """Build payload for HTTP server configuration."""
+        payload: Dict[str, Any] = {"url": self.url}
+        if self.bearer_token_env_var is not None:
+            payload["bearer_token_env_var"] = self.bearer_token_env_var
+        return payload
+
+
+CodexMcpServer = Union[CodexStdioMcpServer, CodexHttpMcpServer]
 
 
 class CodexProfile(BaseModel):
@@ -170,6 +202,9 @@ __all__ = [
     "SandboxMode",
     "ReasoningEffort",
     "Verbosity",
+    "CodexMcpServerBase",
+    "CodexStdioMcpServer",
+    "CodexHttpMcpServer",
     "CodexMcpServer",
     "CodexProfile",
     "CodexChatConfig",

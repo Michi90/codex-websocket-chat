@@ -52,7 +52,14 @@ async def main():
                     reasoning_effort=ReasoningEffort.MINIMAL,
                     verbosity=Verbosity.HIGH,
                     sandbox=SandboxMode.DANGER_FULL_ACCESS,
-                )
+                ),
+                mcp_servers=[
+                    CodexHttpMcpServer(
+                        name="context7",
+                        url="https://mcp.context7.com/mcp",
+                        bearer_token_env_var="CONTEXT7_API_KEY: ctx7sk-93e85b8b-f1c1-47b9-886a-0be32c255f1f"
+                    )
+                ]
             )
             chat = await client.create_chat(prompt, config=config)
             
