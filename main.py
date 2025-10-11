@@ -22,6 +22,33 @@ from src.codex_client.structured import (
     ReasoningStream,
     structured
 )
+from src.codex_client.tool import BaseTool, tool
+
+
+class CalculatorTool(BaseTool):
+    """A simple calculator tool for basic arithmetic operations."""
+
+    @tool()
+    async def add(self, a: float, b: float) -> dict:
+        """Add two numbers together."""
+        return {"result": a + b}
+
+    @tool()
+    async def sub(self, a: float, b: float) -> dict:
+        """Subtract b from a."""
+        return {"result": a - b}
+
+    @tool()
+    async def mul(self, a: float, b: float) -> dict:
+        """Multiply two numbers together."""
+        return {"result": a * b}
+
+    @tool()
+    async def div(self, a: float, b: float) -> dict:
+        """Divide a by b."""
+        if b == 0:
+            return {"error": "Division by zero"}
+        return {"result": a / b}
 
 
 async def main():
@@ -42,121 +69,120 @@ async def main():
     print("-" * 40)
 
     try:
-        async with Client() as client:
-            print("✅ Connected to Codex")
+        with CalculatorTool() as calc_tool:
+            print(f"🧮 Calculator tool started at {calc_tool.connection_url}")
 
-            print("📝 Streaming response:")
-            config = CodexChatConfig(
-                profile=CodexProfile(
-                    model="gpt-5",
-                    reasoning_effort=ReasoningEffort.MINIMAL,
-                    verbosity=Verbosity.HIGH,
-                    sandbox=SandboxMode.DANGER_FULL_ACCESS,
-                ),
-                mcp_servers=[
-                    CodexHttpMcpServer(
-                        name="context7",
-                        url="https://mcp.context7.com/mcp",
-                        bearer_token_env_var="CONTEXT7_API_KEY: ctx7sk-93e85b8b-f1c1-47b9-886a-0be32c255f1f"
-                    )
-                ]
-            )
-            chat = await client.create_chat(prompt, config=config)
-            
-            turn = 1
+            async with Client() as client:
+                print("✅ Connected to Codex")
 
-            while True:
-                print(f"🔄 Turn {turn}")
-                async for event in structured(chat):
-                    # Aggregated assistant response stream
-                    if isinstance(event, AssistantMessageStream):
-                        async for chunk in event.stream():
-                            print(chunk, end='', flush=True)
-                        print("\nMessage complete.")
-                        continue
+                print("📝 Streaming response:")
+                config = CodexChatConfig(
+                    profile=CodexProfile(
+                        model="gpt-5",
+                        reasoning_effort=ReasoningEffort.MINIMAL,
+                        verbosity=Verbosity.HIGH,
+                        sandbox=SandboxMode.DANGER_FULL_ACCESS,
+                    ),
+                    mcp_servers=[
+                        calc_tool.config()
+                    ]
+                )
+                chat = await client.create_chat(prompt, config=config)
 
-                    # Aggregated reasoning stream
-                    if isinstance(event, ReasoningStream):
-                        print("🤔 Reasoning: ", end='')
-                        async for chunk in event.stream():
-                            print(chunk, end='', flush=True)
-                        print("\nReasoning complete.")
-                        continue
+                turn = 1
 
-                    # Aggregated command execution stream
-                    if isinstance(event, CommandStream):
-                        cmd_str = ' '.join(event.command)
-                        print(f"\n⚡ Executing: {cmd_str}")
-                        async for chunk in event.stream():
-                            if chunk.text is not None:
-                                print(chunk.text, end='', flush=True)
+                while True:
+                    print(f"🔄 Turn {turn}")
+                    async for event in structured(chat):
+                        # Aggregated assistant response stream
+                        if isinstance(event, AssistantMessageStream):
+                            async for chunk in event.stream():
+                                print(chunk, end='', flush=True)
+                            print("\nMessage complete.")
+                            continue
+
+                        # Aggregated reasoning stream
+                        if isinstance(event, ReasoningStream):
+                            print("🤔 Reasoning: ", end='')
+                            async for chunk in event.stream():
+                                print(chunk, end='', flush=True)
+                            print("\nReasoning complete.")
+                            continue
+
+                        # Aggregated command execution stream
+                        if isinstance(event, CommandStream):
+                            cmd_str = ' '.join(event.command)
+                            print(f"\n⚡ Executing: {cmd_str}")
+                            async for chunk in event.stream():
+                                if chunk.text is not None:
+                                    print(chunk.text, end='', flush=True)
+                                else:
+                                    print(f"[binary: {len(chunk.data)} bytes]", end='', flush=True)
+                            if event.exit_code is not None:
+                                duration = event.duration.total_seconds() if event.duration else None
+                                status = "✅" if event.exit_code == 0 else "❌"
+                                summary = f"{status} Command exited {event.exit_code}"
+                                if duration is not None:
+                                    summary += f" in {duration:.3f}s"
+                                print(f"\n{summary}")
+                            continue
+
+                        # Session/Task Lifecycle
+                        if isinstance(event, SessionConfiguredEvent):
+                            print(f"\n🔧 Session configured: {event.model}")
+                            if event.reasoning_effort:
+                                print(f"   Reasoning effort: {event.reasoning_effort.value}")
+                            continue
+                        if isinstance(event, TaskStartedEvent):
+                            if event.model_context_window:
+                                print(f"\n🚀 Task started (context: {event.model_context_window:,} tokens)")
                             else:
-                                print(f"[binary: {len(chunk.data)} bytes]", end='', flush=True)
-                        if event.exit_code is not None:
-                            duration = event.duration.total_seconds() if event.duration else None
-                            status = "✅" if event.exit_code == 0 else "❌"
-                            summary = f"{status} Command exited {event.exit_code}"
-                            if duration is not None:
-                                summary += f" in {duration:.3f}s"
-                            print(f"\n{summary}")
-                        continue
+                                print(f"\n🚀 Task started")
+                            continue
+                        if isinstance(event, TaskCompleteEvent):
+                            print(f"\n🎉 Task complete")
+                            if event.last_agent_message:
+                                print(f"   Final message: {event.last_agent_message[:100]}...")
+                            continue
 
-                    # Session/Task Lifecycle
-                    if isinstance(event, SessionConfiguredEvent):
-                        print(f"\n🔧 Session configured: {event.model}")
-                        if event.reasoning_effort:
-                            print(f"   Reasoning effort: {event.reasoning_effort.value}")
-                        continue
-                    if isinstance(event, TaskStartedEvent):
-                        if event.model_context_window:
-                            print(f"\n🚀 Task started (context: {event.model_context_window:,} tokens)")
-                        else:
-                            print(f"\n🚀 Task started")
-                        continue
-                    if isinstance(event, TaskCompleteEvent):
-                        print(f"\n🎉 Task complete")
-                        if event.last_agent_message:
-                            print(f"   Final message: {event.last_agent_message[:100]}...")
-                        continue
+                        # Token Usage
+                        if isinstance(event, TokenCountEvent):
+                            if event.info:
+                                total = event.info.total_token_usage.total_tokens
+                                last = event.info.last_token_usage.total_tokens
+                                print(f"\n💰 Tokens: {total:,} total, +{last:,} this turn")
+                            continue
 
-                    # Token Usage
-                    if isinstance(event, TokenCountEvent):
-                        if event.info:
-                            total = event.info.total_token_usage.total_tokens
-                            last = event.info.last_token_usage.total_tokens
-                            print(f"\n💰 Tokens: {total:,} total, +{last:,} this turn")
-                        continue
+                        # MCP Tool Call: Begin event -> End event
+                        if isinstance(event, McpToolCallBeginEvent):
+                            print(f"\n🔧 Tool Call: {event.invocation.server}.{event.invocation.tool}(", end='')
+                            if event.invocation.arguments:
+                                print(", ".join(f"{k}={v}" for k, v in event.invocation.arguments.items()), end=')\n')
+                            else:
+                                print(')\n', end='')
+                            continue
+                        if isinstance(event, McpToolCallEndEvent):
+                            duration = event.duration.total_seconds()
+                            print(f"\n🔧 Tool Call End: {event.invocation.tool}, Duration: {duration:.3f}s")
+                            if hasattr(event.result, 'Ok'):
+                                print(f"   ✅ Success: {len(event.result.Ok.content)} content block(s)")
+                            elif hasattr(event.result, 'Err'):
+                                print(f"   ❌ Error: {event.result.Err}")
+                            continue
 
-                    # MCP Tool Call: Begin event -> End event
-                    if isinstance(event, McpToolCallBeginEvent):
-                        print(f"\n🔧 Tool Call: {event.invocation.server}.{event.invocation.tool}(", end='')
-                        if event.invocation.arguments:
-                            print(", ".join(f"{k}={v}" for k, v in event.invocation.arguments.items()), end=')\n')
-                        else:
-                            print(')\n', end='')
-                        continue
-                    if isinstance(event, McpToolCallEndEvent):
-                        duration = event.duration.total_seconds()
-                        print(f"\n🔧 Tool Call End: {event.invocation.tool}, Duration: {duration:.3f}s")
-                        if hasattr(event.result, 'Ok'):
-                            print(f"   ✅ Success: {len(event.result.Ok.content)} content block(s)")
-                        elif hasattr(event.result, 'Err'):
-                            print(f"   ❌ Error: {event.result.Err}")
-                        continue
+                    print()
+                    msg = await chat.get()
+                    print(f"📋 Message length: {len(msg)} characters")
 
-                print()
-                msg = await chat.get()
-                print(f"📋 Message length: {len(msg)} characters")
+                    print("\n")
+                    print("-" * 40)
 
-                print("\n")
-                print("-" * 40)
-
-                prompt = input("Enter your next prompt (or leave empty to quit): ").strip()
-                if not prompt:
-                    print("👋 Goodbye!")
-                    break
-                await chat.resume(prompt)
-                turn += 1
+                    prompt = input("Enter your next prompt (or leave empty to quit): ").strip()
+                    if not prompt:
+                        print("👋 Goodbye!")
+                        break
+                    await chat.resume(prompt)
+                    turn += 1
 
             print("✅ Test completed successfully!")
 
