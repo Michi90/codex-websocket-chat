@@ -55,7 +55,9 @@ from .event import (
     parse_event,
 )
 from .structured import (
+    AggregatedChatEvent,
     AssistantMessageStream,
+    CommandOutputChunk,
     CommandStream,
     ReasoningStream,
     structured,
@@ -109,9 +111,11 @@ __all__ = [
 
     # Structured stream helpers
     "structured",
+    "AggregatedChatEvent",
     "AssistantMessageStream",
-    "ReasoningStream",
+    "CommandOutputChunk",
     "CommandStream",
+    "ReasoningStream",
 
     # Middleware
     "setup_mcp_middleware",

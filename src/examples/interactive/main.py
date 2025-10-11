@@ -18,9 +18,12 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from codex_client import (  # type: ignore
+    AssistantMessageStream,
     Client,
     CodexChatConfig,
     CodexProfile,
+    CommandStream,
+    ReasoningStream,
     ReasoningEffort,
     SandboxMode,
     SessionConfiguredEvent,
@@ -30,12 +33,6 @@ from codex_client import (  # type: ignore
     Verbosity,
 )
 from codex_client.event import McpToolCallBeginEvent, McpToolCallEndEvent  # type: ignore
-from codex_client.structured import (  # type: ignore
-    AssistantMessageStream,
-    CommandStream,
-    ReasoningStream,
-    structured,
-)
 
 WELCOME_MESSAGE = """\
 🤖 Codex Client Interactive Chat
@@ -59,7 +56,7 @@ async def _stream_turn(chat) -> Optional[str]:
     """
     final_reply: Optional[str] = None
 
-    async for event in structured(chat):
+    async for event in chat:
         if isinstance(event, AssistantMessageStream):
             print("\n🧠 Assistant:", end=" ", flush=True)
             chunks = []

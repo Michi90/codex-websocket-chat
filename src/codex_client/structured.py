@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-import contextlib
-from typing import AsyncIterator, Dict, Generic, List, Optional, TypeVar, Union
+from typing import Any, AsyncIterator, Dict, Generic, List, Optional, TypeVar, Union
 
 from .event import (
-    AgentMessageDeltaEvent,
     AgentMessageEvent,
-    AgentReasoningDeltaEvent,
     AgentReasoningEvent,
     Duration,
     EventMsg,
@@ -66,6 +63,58 @@ class _AsyncStreamBuffer(Generic[T]):
 
     async def wait_complete(self) -> None:
         await self._completed.wait()
+
+
+class StreamSlot(Generic[T]):
+    """Manages lifecycle of a single-instance stream with auto-incrementing sequence.
+
+    Used for assistant messages and reasoning streams that have at most one
+    active instance at a time.
+    """
+
+    def __init__(self, stream_class: type[T]) -> None:
+        self._stream_class = stream_class
+        self._seq = 0
+        self._current: Optional[T] = None
+
+    def handle_delta(self, delta: str, conversation_id: Optional[str]) -> Optional[T]:
+        """Handle a delta event. Returns new stream if created, None if updating existing."""
+        if self._current is None:
+            self._seq += 1
+            self._current = self._stream_class(self._seq, conversation_id)
+            self._current.add_delta(delta)  # type: ignore[attr-defined]
+            return self._current
+        else:
+            self._current.add_delta(delta)  # type: ignore[attr-defined]
+            return None
+
+    def handle_complete(self, event: Any, conversation_id: Optional[str]) -> Optional[T]:
+        """Handle a complete event. Returns new stream if created, None if completing existing."""
+        if self._current is None:
+            self._seq += 1
+            self._current = self._stream_class(self._seq, conversation_id)
+            self._current.complete(event)  # type: ignore[attr-defined]
+            result = self._current
+            self._current = None
+            return result
+        else:
+            self._current.complete(event)  # type: ignore[attr-defined]
+            self._current = None
+            return None
+
+    def reset(self) -> None:
+        """Reset the slot state."""
+        self._current = None
+
+    def flush_incomplete(self) -> None:
+        """Flush any incomplete stream."""
+        if self._current and hasattr(self._current, 'is_complete') and not self._current.is_complete:  # type: ignore[attr-defined]
+            self._current._buffer.finish()  # type: ignore[attr-defined]
+
+    @property
+    def current(self) -> Optional[T]:
+        """Get the current active stream, if any."""
+        return self._current
 
 
 @dataclass
@@ -207,6 +256,130 @@ class CommandStream:
         return self._buffer.is_complete()
 
 
+class CommandRegistry:
+    """Manages multiple concurrent command streams.
+
+    Unlike single-instance streams (assistant, reasoning), commands can have
+    multiple instances running concurrently, tracked by call_id.
+    """
+
+    def __init__(self) -> None:
+        self._seq = 0
+        self._streams: Dict[str, CommandStream] = {}
+
+    def begin(self, event: ExecCommandBeginEvent) -> CommandStream:
+        """Handle command begin event. Returns new CommandStream."""
+        self._seq += 1
+        stream = CommandStream(event, self._seq)
+        self._streams[event.call_id] = stream
+        return stream
+
+    def add_output(self, event: ExecCommandOutputDeltaEvent) -> Optional[EventMsg]:
+        """Handle command output event. Returns orphaned event if no matching stream."""
+        stream = self._streams.get(event.call_id)
+        if stream is None:
+            return event  # Orphaned output delta
+        stream.add_output(event)
+        return None
+
+    def end(self, event: ExecCommandEndEvent) -> Optional[EventMsg]:
+        """Handle command end event. Returns orphaned event if no matching stream."""
+        stream = self._streams.pop(event.call_id, None)
+        if stream is None:
+            return event  # Orphaned end event
+        stream.complete(event)
+        return None
+
+    def reset(self) -> None:
+        """Reset registry state."""
+        self._streams.clear()
+
+    def flush_incomplete(self) -> None:
+        """Flush all incomplete command streams."""
+        for stream in self._streams.values():
+            if not stream.is_complete:
+                stream._buffer.finish()
+
+
+class EventAggregator:
+    """Orchestrates all event aggregation with dispatch table.
+
+    This class consolidates the logic for aggregating delta events into
+    structured stream objects. It uses a dispatch table for efficient
+    type-based routing.
+    """
+
+    def __init__(self) -> None:
+        self._assistant = StreamSlot(AssistantMessageStream)
+        self._reasoning = StreamSlot(ReasoningStream)
+        self._commands = CommandRegistry()
+
+        # Import event types for dispatch
+        from .event import (
+            AgentMessageDeltaEvent,
+            AgentReasoningDeltaEvent,
+        )
+
+        # Dispatch table mapping event types to handler methods
+        self._dispatch: Dict[type, Any] = {
+            AgentMessageDeltaEvent: self._handle_assistant_delta,
+            AgentMessageEvent: self._handle_assistant_complete,
+            AgentReasoningDeltaEvent: self._handle_reasoning_delta,
+            AgentReasoningEvent: self._handle_reasoning_complete,
+            ExecCommandBeginEvent: self._handle_command_begin,
+            ExecCommandOutputDeltaEvent: self._handle_command_output,
+            ExecCommandEndEvent: self._handle_command_end,
+        }
+
+    def process(self, event: Any) -> Optional[Union[AssistantMessageStream, ReasoningStream, CommandStream, EventMsg]]:
+        """Process an event through the aggregation pipeline.
+
+        Returns:
+            - New stream object if created (should be appended to events)
+            - Orphaned event if no handler found or handler returned event
+            - None if event was consumed by existing stream
+        """
+        handler = self._dispatch.get(type(event))
+        if handler:
+            return handler(event)
+        # Pass through unknown events
+        return event
+
+    def reset(self) -> None:
+        """Reset all aggregation state."""
+        self._assistant.reset()
+        self._reasoning.reset()
+        self._commands.reset()
+
+    def flush_incomplete(self) -> None:
+        """Flush all incomplete streams."""
+        self._assistant.flush_incomplete()
+        self._reasoning.flush_incomplete()
+        self._commands.flush_incomplete()
+
+    # Handler methods
+    def _handle_assistant_delta(self, event: Any) -> Optional[AssistantMessageStream]:
+        return self._assistant.handle_delta(event.delta, event.conversation_id)
+
+    def _handle_assistant_complete(self, event: AgentMessageEvent) -> Optional[AssistantMessageStream]:
+        return self._assistant.handle_complete(event, event.conversation_id)
+
+    def _handle_reasoning_delta(self, event: Any) -> Optional[ReasoningStream]:
+        return self._reasoning.handle_delta(event.delta, event.conversation_id)
+
+    def _handle_reasoning_complete(self, event: AgentReasoningEvent) -> Optional[ReasoningStream]:
+        return self._reasoning.handle_complete(event, event.conversation_id)
+
+    def _handle_command_begin(self, event: ExecCommandBeginEvent) -> CommandStream:
+        return self._commands.begin(event)
+
+    def _handle_command_output(self, event: ExecCommandOutputDeltaEvent) -> Optional[EventMsg]:
+        return self._commands.add_output(event)
+
+    def _handle_command_end(self, event: ExecCommandEndEvent) -> Optional[EventMsg]:
+        return self._commands.end(event)
+
+
 AggregatedChatEvent = Union[
     AssistantMessageStream,
     ReasoningStream,
@@ -216,114 +389,20 @@ AggregatedChatEvent = Union[
 
 
 async def structured(chat: AsyncIterator[EventMsg]) -> AsyncIterator[AggregatedChatEvent]:
-    """Yield aggregated wrappers while preserving access to raw events."""
+    """Yield aggregated wrappers while preserving access to raw events.
 
-    stop_token = object()
-    queue: "asyncio.Queue[AggregatedChatEvent | object]" = asyncio.Queue()
+    **DEPRECATED**: This function is now redundant. As of version 0.2.0,
+    Chat yields structured events by default. Simply iterate over the Chat
+    instance directly:
 
-    async def pump() -> None:
-        assistant_stream: Optional[AssistantMessageStream] = None
-        reasoning_stream: Optional[ReasoningStream] = None
-        command_streams: Dict[str, CommandStream] = {}
+        async for event in chat:  # Already structured!
+            ...
 
-        assistant_seq = 0
-        reasoning_seq = 0
-        command_seq = 0
-
-        try:
-            async for event in chat:
-                if isinstance(event, AgentMessageDeltaEvent):
-                    if assistant_stream is None:
-                        assistant_seq += 1
-                        assistant_stream = AssistantMessageStream(assistant_seq, event.conversation_id)
-                        assistant_stream.add_delta(event.delta)
-                        await queue.put(assistant_stream)
-                    else:
-                        assistant_stream.add_delta(event.delta)
-                    continue
-
-                if isinstance(event, AgentMessageEvent):
-                    if assistant_stream is None:
-                        assistant_seq += 1
-                        assistant_stream = AssistantMessageStream(assistant_seq, event.conversation_id)
-                        assistant_stream.complete(event)
-                        await queue.put(assistant_stream)
-                        assistant_stream = None
-                    else:
-                        assistant_stream.complete(event)
-                        assistant_stream = None
-                    continue
-
-                if isinstance(event, AgentReasoningDeltaEvent):
-                    if reasoning_stream is None:
-                        reasoning_seq += 1
-                        reasoning_stream = ReasoningStream(reasoning_seq, event.conversation_id)
-                        reasoning_stream.add_delta(event.delta)
-                        await queue.put(reasoning_stream)
-                    else:
-                        reasoning_stream.add_delta(event.delta)
-                    continue
-
-                if isinstance(event, AgentReasoningEvent):
-                    if reasoning_stream is None:
-                        reasoning_seq += 1
-                        reasoning_stream = ReasoningStream(reasoning_seq, event.conversation_id)
-                        reasoning_stream.complete(event)
-                        await queue.put(reasoning_stream)
-                        reasoning_stream = None
-                    else:
-                        reasoning_stream.complete(event)
-                        reasoning_stream = None
-                    continue
-
-                if isinstance(event, ExecCommandBeginEvent):
-                    command_seq += 1
-                    stream = CommandStream(event, command_seq)
-                    command_streams[event.call_id] = stream
-                    await queue.put(stream)
-                    continue
-
-                if isinstance(event, ExecCommandOutputDeltaEvent):
-                    stream = command_streams.get(event.call_id)
-                    if stream is None:
-                        await queue.put(event)
-                        continue
-                    stream.add_output(event)
-                    continue
-
-                if isinstance(event, ExecCommandEndEvent):
-                    stream = command_streams.pop(event.call_id, None)
-                    if stream is None:
-                        await queue.put(event)
-                        continue
-                    stream.complete(event)
-                    continue
-
-                await queue.put(event)
-        finally:
-            if assistant_stream and not assistant_stream.is_complete:
-                assistant_stream._buffer.finish()  # best effort flush
-            if reasoning_stream and not reasoning_stream.is_complete:
-                reasoning_stream._buffer.finish()
-            for stream in command_streams.values():
-                if not stream.is_complete:
-                    stream._buffer.finish()
-            await queue.put(stop_token)
-
-    pump_task = asyncio.create_task(pump())
-
-    try:
-        while True:
-            item = await queue.get()
-            if item is stop_token:
-                break
-            yield item  # type: ignore[misc]
-        await pump_task
-    finally:
-        if not pump_task.done():
-            pump_task.cancel()
-            with contextlib.suppress(Exception):
-                await pump_task
+    This function is kept for backward compatibility and simply passes through
+    the chat iterator unchanged.
+    """
+    async for event in chat:
+        yield event  # type: ignore[misc]
 
 
 __all__ = [

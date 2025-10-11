@@ -3,20 +3,26 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncIterator, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, AsyncIterator, List, Optional, TYPE_CHECKING, Union
 
-from .event import CodexEventMsg, TaskCompleteEvent, SessionConfiguredEvent, AllEvents
+from .event import (
+    CodexEventMsg,
+    SessionConfiguredEvent,
+    TaskCompleteEvent,
+    AllEvents,
+)
 from .exceptions import ChatError
 
 if TYPE_CHECKING:
     from .client import Client
     from .config import CodexChatConfig
+    from .structured import AggregatedChatEvent, EventAggregator
 
 
 class Chat:
     """Represents a Codex conversation with streaming events and resume support."""
 
-    def __init__(self, client: "Client") -> None:
+    def __init__(self, client: "Client", structured: bool = True) -> None:
         self._client = client
         self._conversation_id: Optional[str] = None
 
@@ -24,7 +30,9 @@ class Chat:
         self._result_cache: Optional[Any] = None
         self._task_completed = False
 
-        self._events: List[CodexEventMsg] = []
+        # Event storage - can contain either raw events or aggregated events
+        self._structured_mode = structured
+        self._events: List[Union[CodexEventMsg, "AggregatedChatEvent"]] = []
         self._iter_index = 0
         self._events_complete = True
         self._event_available: asyncio.Event = asyncio.Event()
@@ -32,6 +40,13 @@ class Chat:
         self._stream_task: Optional[asyncio.Task[None]] = None
         self._stream_error: Optional[BaseException] = None
         self._last_agent_message: Optional[str] = None
+
+        # State for structured aggregation
+        if structured:
+            from .structured import EventAggregator
+            self._aggregator: Optional["EventAggregator"] = EventAggregator()
+        else:
+            self._aggregator = None
 
     def __aiter__(self) -> "Chat":
         return self
@@ -73,6 +88,15 @@ class Chat:
         )
         await self._launch_tool(tool_name, tool_args)
 
+    def raw(self) -> "RawEventIterator":
+        """Return an iterator that yields raw events instead of structured aggregated events.
+
+        This provides access to low-level delta events for advanced use cases.
+        Note: This creates a separate view of events - you should iterate either the
+        main Chat or the raw() iterator, not both.
+        """
+        return RawEventIterator(self)
+
     @property
     def conversation_id(self) -> Optional[str]:
         return self._conversation_id
@@ -107,6 +131,10 @@ class Chat:
         self._stream_error = None
         self._last_agent_message = None
 
+        # Reset structured aggregation state
+        if self._aggregator:
+            self._aggregator.reset()
+
         task.add_done_callback(self._handle_tool_completion)
 
         if event_stream is not None:
@@ -117,8 +145,7 @@ class Chat:
     async def _consume_events(self, event_stream: AsyncIterator[AllEvents]) -> None:
         try:
             async for event in event_stream:
-                self._events.append(event)
-
+                # Track conversation_id and last_agent_message regardless of mode
                 conversation_id = getattr(event, "conversation_id", None)
                 if not conversation_id and isinstance(event, SessionConfiguredEvent):
                     conversation_id = event.session_id
@@ -126,7 +153,13 @@ class Chat:
                     self._conversation_id = conversation_id
                 if isinstance(event, TaskCompleteEvent):
                     self._last_agent_message = event.last_agent_message
-                self._event_available.set()
+
+                # Process event based on mode
+                if self._structured_mode:
+                    await self._process_event_structured(event)
+                else:
+                    self._events.append(event)
+                    self._event_available.set()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -134,7 +167,17 @@ class Chat:
             self._event_available.set()
             raise
         finally:
+            # Flush incomplete streams in structured mode
+            if self._aggregator:
+                self._aggregator.flush_incomplete()
             self._events_complete = True
+            self._event_available.set()
+
+    async def _process_event_structured(self, event: AllEvents) -> None:
+        """Process an event in structured mode using aggregator."""
+        result = self._aggregator.process(event)  # type: ignore[union-attr]
+        if result is not None:
+            self._events.append(result)
             self._event_available.set()
 
     async def _wait_for_next_event(self) -> None:
@@ -228,3 +271,23 @@ class Chat:
 
     def __del__(self) -> None:
         self._cancel_pending_tasks()
+
+
+class RawEventIterator:
+    """Iterator wrapper that provides access to raw events from a Chat in structured mode.
+
+    Note: If the Chat was created with structured=False, this will error since
+    raw events are already being yielded by the main Chat iterator.
+    """
+
+    def __init__(self, chat: Chat) -> None:
+        if not chat._structured_mode:
+            raise ValueError(
+                "Chat is already in raw mode. Use the main Chat iterator directly "
+                "instead of calling raw()."
+            )
+        raise NotImplementedError(
+            "The raw() method requires creating a new Chat with structured=False. "
+            "This is not yet implemented. For now, create the chat with "
+            "Client.create_chat(..., structured=False) if you need raw events."
+        )

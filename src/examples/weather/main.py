@@ -17,9 +17,12 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from codex_client import (  # type: ignore
+    AssistantMessageStream,
     Client,
     CodexChatConfig,
     CodexProfile,
+    CommandStream,
+    ReasoningStream,
     ReasoningEffort,
     SandboxMode,
     SessionConfiguredEvent,
@@ -29,12 +32,6 @@ from codex_client import (  # type: ignore
     Verbosity,
 )
 from codex_client.event import McpToolCallBeginEvent, McpToolCallEndEvent  # type: ignore
-from codex_client.structured import (  # type: ignore
-    AssistantMessageStream,
-    CommandStream,
-    ReasoningStream,
-    structured,
-)
 
 from prompt import WELCOME_MESSAGE, WEATHER_SYSTEM_PROMPT
 from tool import WeatherTool
@@ -44,7 +41,7 @@ async def _stream_weather_turn(chat) -> Optional[str]:
     """Stream a single Codex turn for the weather demo."""
     final_reply: Optional[str] = None
 
-    async for event in structured(chat):
+    async for event in chat:
         if isinstance(event, AssistantMessageStream):
             print("\n🤖 Weather Assistant:\n", end="", flush=True)
             chunks = []

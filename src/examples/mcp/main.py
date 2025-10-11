@@ -18,17 +18,19 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from codex_client import (  # type: ignore
+    AssistantMessageStream,
     Client,
     CodexChatConfig,
     CodexHttpMcpServer,
     CodexProfile,
     CodexStdioMcpServer,
+    CommandStream,
+    ReasoningStream,
     ReasoningEffort,
     SandboxMode,
     Verbosity,
 )
 from codex_client.event import McpToolCallBeginEvent, McpToolCallEndEvent  # type: ignore
-from codex_client.structured import AssistantMessageStream, CommandStream, ReasoningStream, structured  # type: ignore
 
 from prompt import MCP_SYSTEM_PROMPT, WELCOME_MESSAGE, format_demo_output, get_demo_prompt
 
@@ -37,7 +39,7 @@ async def _stream_response(chat) -> str:
     """Stream assistant output for a single Codex turn and return the final message."""
     assistant_chunks: list[str] = []
 
-    async for event in structured(chat):
+    async for event in chat:
         if isinstance(event, AssistantMessageStream):
             async for chunk in event.stream():
                 assistant_chunks.append(chunk)
