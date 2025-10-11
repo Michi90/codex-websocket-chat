@@ -156,7 +156,9 @@ class CodexChatConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     approval_policy: Optional[ApprovalPolicy] = None
-    base_instruction: Optional[str] = None
+    # NOTE: Codex CLI currently rejects the serialized "base-instructions" payload.
+    # Keep this commented out until the CLI accepts it again.
+    # base_instruction: Optional[str] = None
     cwd: Optional[str] = None
     model: Optional[str] = None
     sandbox: Optional[SandboxMode] = None
@@ -170,8 +172,8 @@ class CodexChatConfig(BaseModel):
         payload: Dict[str, Any] = {}
         if self.approval_policy is not None:
             payload["approval-policy"] = self.approval_policy
-        if self.base_instruction is not None:
-            payload["base-instructions"] = self.base_instruction
+        # if self.base_instruction is not None:
+        #     payload["base-instructions"] = self.base_instruction
         if self.cwd is not None:
             payload["cwd"] = self.cwd
         if self.model is not None:
@@ -186,6 +188,7 @@ class CodexChatConfig(BaseModel):
         if self.mcp_servers is not None:
             for server in self.mcp_servers:
                 config.update(server._serialize())
+            config["experimental_use_rmcp_client"] = True
         if self.envs is not None:
             config.update({
                 "shell_environment_policy": {

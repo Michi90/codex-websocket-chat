@@ -107,6 +107,8 @@ class Chat:
         self._stream_error = None
         self._last_agent_message = None
 
+        task.add_done_callback(self._handle_tool_completion)
+
         if event_stream is not None:
             self._stream_task = asyncio.create_task(self._consume_events(event_stream))
         else:
@@ -141,7 +143,7 @@ class Chat:
 
     def _check_stream_error(self) -> None:
         if self._stream_error:
-            raise ChatError("Failed to stream Codex events") from self._stream_error
+            raise ChatError(f"Failed to stream Codex events: {self._stream_error}") from self._stream_error
 
     async def _ensure_events_collected(self) -> None:
         if self._stream_task:
@@ -190,6 +192,21 @@ class Chat:
             self._result_or_task.cancel()
 
         self._result_or_task = None
+
+    def _handle_tool_completion(self, task: asyncio.Task) -> None:
+        """Handle completion (success or failure) of the Codex tool invocation."""
+        self._task_completed = True
+        self._events_complete = True
+
+        if task.cancelled():
+            self._event_available.set()
+            return
+
+        exc = task.exception()
+        if exc:
+            self._stream_error = exc
+
+        self._event_available.set()
 
     @staticmethod
     def _extract_conversation_id(result: Any) -> Optional[str]:
