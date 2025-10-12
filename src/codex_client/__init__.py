@@ -63,6 +63,7 @@ from .structured import (
     structured,
 )
 from .middleware import setup_mcp_middleware, get_middleware
+from .tool import BaseTool, tool
 
 __version__ = "0.1.0"
 
@@ -120,4 +121,8 @@ __all__ = [
     # Middleware
     "setup_mcp_middleware",
     "get_middleware",
+
+    # Tool framework
+    "BaseTool",
+    "tool",
 ]

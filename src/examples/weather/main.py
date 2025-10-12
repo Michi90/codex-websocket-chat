@@ -7,16 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from pathlib import Path
 from typing import Optional
 
-# Ensure codex_client package can be imported when running directly
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from codex_client import (  # type: ignore
+from codex_client import (
     AssistantMessageStream,
     Client,
     CodexChatConfig,
@@ -31,7 +24,7 @@ from codex_client import (  # type: ignore
     TokenCountEvent,
     Verbosity,
 )
-from codex_client.event import McpToolCallBeginEvent, McpToolCallEndEvent  # type: ignore
+from codex_client.event import McpToolCallBeginEvent, McpToolCallEndEvent
 
 from prompt import WELCOME_MESSAGE, WEATHER_SYSTEM_PROMPT
 from tool import WeatherTool

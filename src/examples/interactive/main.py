@@ -8,16 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from pathlib import Path
 from typing import Optional
 
-# Ensure the repository src/ directory is importable when running directly
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from codex_client import (  # type: ignore
+from codex_client import (
     AssistantMessageStream,
     Client,
     CodexChatConfig,

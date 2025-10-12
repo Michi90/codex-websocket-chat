@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from codex_client.tool import BaseTool, tool  # type: ignore
+from codex_client import BaseTool, tool
 
 from weather import WeatherAPI
 

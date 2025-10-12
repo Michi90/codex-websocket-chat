@@ -1,61 +1,32 @@
-# Codex Client (Unofficial)
+# Codex Client
 
-Codex Client is a lightweight, community-maintained Python wrapper around the Codex CLI. It lets you launch chats, stream reasoning and tool events, and drive MCP servers from your own applications—similar to how the `claude-code-sdk` works for Anthropics' Claude tools, but tailored for Codex.
-
-> This package is **not** an official OpenAI release. Expect the API surface to evolve as the Codex CLI changes.
+Lightweight Python wrapper for the Codex CLI. Stream chats, handle reasoning/tool events, and build custom MCP tools.
 
 ## Installation
 
 ```bash
-# clone this repository, then install in a virtual environment
 pip install codex-client
-# or, if you use uv
-uv pip install codex-client
 ```
 
-Ensure the `codex` executable is on your `PATH`, since the client shells out to `codex mcp serve` under the hood.
+Requires `codex` executable on your PATH.
 
-## Authentication quick start
-
-The bundled CLI wraps the official Codex login helper so you can capture and reuse credentials safely.
+## Authentication (CLI)
 
 ```bash
-# Launch the Codex login flow, witness the browser open, and wait for success
+# Login via browser
 codex-client login
 
-# Prefer to launch the browser yourself? Pass --no-browser and follow the prompt
-codex-client login --no-browser
-
-# See the stored payload (compressed base64) and copy it to another machine
+# Export credentials (copy to another machine)
 codex-client read
 
-# Import the copied payload into a fresh environment
+# Import credentials
 codex-client set "<payload>"
 
-# Clear local credentials when finished
+# Clear credentials
 codex-client logout
 ```
 
-On the receiving machine you can also drop straight into Python:
-
-```python
-from codex_client.auth import CodexAuth
-
-auth = CodexAuth(codex_command="codex-client")
-auth.set("<payload-from-read>")
-# later, confirm or refresh as needed
-token = auth.read()
-```
-
-## Core Concepts
-
-- **Client lifecycle** – `codex_client.Client` manages the background MCP session. Use it as an async context manager to guarantee clean startup and teardown.
-- **Chats** – `codex_client.Chat` represents an ongoing conversation. Iterate over it for raw events, call `await chat.get()` for the final assistant reply, and `await chat.resume(...)` to continue the dialogue.
-- **Configuration** – `CodexChatConfig`, `CodexProfile`, and `CodexMcpServer` (in `codex_client.config`) serialize options Codex expects: models, sandboxing, approval policy, working directory, environment overrides, MCP servers, and more.
-- **Structured streaming** – By default, `Chat` yields structured events (`AssistantMessageStream`, `ReasoningStream`, `CommandStream`) that aggregate low-level deltas into convenient async streams. For advanced use cases requiring raw events, create a chat with `structured=False`.
-- **Events & errors** – All event dataclasses live in `codex_client.event`; exceptions (`CodexError`, `ChatError`, `ToolError`, etc.) live in `codex_client.exceptions` so you can handle failures precisely.
-
-## Usage Example
+## Basic Usage
 
 ```python
 import asyncio
@@ -64,66 +35,101 @@ from codex_client import (
     Client,
     CodexChatConfig,
     CodexProfile,
-    CodexMcpServer,
-    CommandStream,
-    ReasoningStream,
     ReasoningEffort,
     SandboxMode,
-    Verbosity,
 )
 
-async def run(prompt: str) -> None:
+async def main():
     config = CodexChatConfig(
         profile=CodexProfile(
             model="gpt-5",
             reasoning_effort=ReasoningEffort.MINIMAL,
-            verbosity=Verbosity.HIGH,
-            sandbox=SandboxMode.DANGER_FULL_ACCESS,
-        ),
-        mcp_servers=[
-            CodexMcpServer(
-                name="context7",
-                command="npx",
-                args=["-y", "@upstash/context7-mcp", "--api-key", "<api_key>"]
-            )
-        ],
+            sandbox=SandboxMode.WORKSPACE_WRITE,
+        )
     )
 
     async with Client() as client:
-        chat = await client.create_chat(prompt, config=config)
+        chat = await client.create_chat("Write a Python fibonacci function", config=config)
 
-        # Chat yields structured events by default!
+        # Stream responses
         async for event in chat:
             if isinstance(event, AssistantMessageStream):
                 async for chunk in event.stream():
                     print(chunk, end="", flush=True)
-                print("\n[assistant message complete]")
-            elif isinstance(event, ReasoningStream):
-                async for chunk in event.stream():
-                    print(f"[reasoning] {chunk}")
-            elif isinstance(event, CommandStream):
-                async for chunk in event.stream():
-                    if chunk.text:
-                        print(f"[command {event.command}] {chunk.text}")
 
-        final_reply = await chat.get()
-        print("Final reply:", final_reply)
+        # Get final response
+        final = await chat.get()
+        print(f"\n\nFinal: {final}")
 
-        await chat.resume("Thanks! Any closing thoughts?")
+        # Continue conversation
+        await chat.resume("Now make it recursive")
 
-asyncio.run(run("Introduce yourself."))
+asyncio.run(main())
 ```
 
-This pattern illustrates how to:
+## Custom Tools
 
-- Bootstrap a Codex profile, sandbox policy, and optional MCP servers.
-- Open a chat, stream assistant output, reasoning traces, and command execution in real time.
-- Retrieve the final assistant response and continue the conversation with `chat.resume()`.
+```python
+from codex_client import BaseTool, tool
 
-## Extending Codex Client
+class CalculatorTool(BaseTool):
+    @tool()
+    async def add(self, a: float, b: float) -> dict:
+        """Add two numbers."""
+        return {"result": a + b}
 
-- Inject your own MCP servers or tools by modifying the `CodexChatConfig` you pass to `Client.create_chat`.
-- Capture richer telemetry (token counts, command durations, event payloads) by handling additional event types alongside the structured streams.
-- Integrate Codex Client into automation (FastAPI endpoints, Slack bots, GitHub Actions) so Codex handles the heavy lifting while you orchestrate workflows.
+    @tool()
+    async def multiply(self, a: float, b: float) -> dict:
+        """Multiply two numbers."""
+        return {"result": a * b}
 
-Bug reports and contributions are welcome—the codebase stays intentionally small so you can adapt it quickly.
+# Use the tool
+async def main():
+    with CalculatorTool() as calc:
+        config = CodexChatConfig(
+            profile=CodexProfile(model="gpt-5"),
+            mcp_servers=[calc.config()]
+        )
+
+        async with Client() as client:
+            chat = await client.create_chat("What is 15 + 27?", config=config)
+            async for event in chat:
+                if isinstance(event, AssistantMessageStream):
+                    async for chunk in event.stream():
+                        print(chunk, end="", flush=True)
+
+asyncio.run(main())
+```
+
+## Authentication (Code)
+
+```python
+from codex_client.auth import CodexAuth
+
+auth = CodexAuth()
+
+# Trigger login flow (opens browser)
+session = auth.login()
+print(f"Visit: {session.url}")
+success = session.wait()  # Blocks until user completes login
+
+# Or import existing credentials
+auth.set("<payload-from-codex-client-read>")
+
+# Verify credentials
+token = auth.read()
+```
+
+## Examples
+
+See `src/examples/` for complete demos:
+
+- **Interactive Chat** - Multi-turn conversations with streaming
+- **MCP Transport** - HTTP and stdio MCP server connectivity
+- **Weather Assistant** - Custom tool with state management
+
+```bash
+cd src/examples
+uv sync
+uv run weather/main.py
+```
