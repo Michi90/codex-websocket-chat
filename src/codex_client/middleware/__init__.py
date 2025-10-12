@@ -40,7 +40,10 @@ class CodexMiddleware:
             except asyncio.TimeoutError:
                 consecutive_timeouts += 1
                 if consecutive_timeouts >= max_consecutive_timeouts:
-                    break
+                    raise asyncio.TimeoutError(
+                        f"Event stream stalled - no events received for "
+                        f"{max_consecutive_timeouts} seconds"
+                    )
 
     def clear_events(self) -> None:
         """Remove any queued events."""

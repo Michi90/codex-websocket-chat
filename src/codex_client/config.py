@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -20,10 +21,10 @@ def _snake_case(value: str) -> str:
     value = re.sub(r"[^0-9a-zA-Z]+", "_", value)
     return value.strip("_").lower()
 
-def random_word(n):
-    import string, random
-    letters = string.ascii_lowercase  
-    return ''.join(random.choice(letters) for _ in range(n))
+
+def _generate_profile_name() -> str:
+    """Generate a unique profile name using UUID."""
+    return f"profile_{uuid.uuid4().hex[:10]}"
 
 
 class ApprovalPolicy(str, Enum):
@@ -127,7 +128,7 @@ class CodexProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: str
-    name: str = Field(default_factory=lambda: random_word(10))
+    name: str = Field(default_factory=_generate_profile_name)
     reasoning_effort: Optional[ReasoningEffort] = None
     verbosity: Optional[Verbosity] = None
     sandbox: Optional[SandboxMode] = None
@@ -205,7 +206,6 @@ __all__ = [
     "SandboxMode",
     "ReasoningEffort",
     "Verbosity",
-    "CodexMcpServerBase",
     "CodexStdioMcpServer",
     "CodexHttpMcpServer",
     "CodexMcpServer",

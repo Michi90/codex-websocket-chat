@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import warnings
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, Generic, List, Optional, TypeVar, Union
 
@@ -126,80 +127,87 @@ class CommandOutputChunk:
     text: Optional[str]
 
 
-class AssistantMessageStream:
-    """Aggregated assistant message with streaming access to deltas."""
+class _BaseTextStream:
+    """Base class for text-based streams (assistant messages, reasoning).
+
+    This eliminates duplication between AssistantMessageStream and ReasoningStream.
+    """
 
     def __init__(self, sequence: int, conversation_id: Optional[str]) -> None:
         self.sequence = sequence
         self.conversation_id = conversation_id
         self._buffer: _AsyncStreamBuffer[str] = _AsyncStreamBuffer()
-        self._final_event: Optional[AgentMessageEvent] = None
+        self._final_event: Optional[Any] = None
 
     def add_delta(self, delta: str) -> None:
+        """Add a text delta to the stream."""
         self._buffer.append(delta)
 
-    def complete(self, event: AgentMessageEvent) -> None:
+    def complete(self, event: Any) -> None:
+        """Mark the stream as complete with the final event."""
         self._final_event = event
-        if not self._buffer.has_items() and event.message:
-            self._buffer.append(event.message)
+        text = self._get_text_from_event(event)
+        if not self._buffer.has_items() and text:
+            self._buffer.append(text)
         self._buffer.finish()
 
     async def stream(self) -> AsyncIterator[str]:
+        """Stream text chunks as they become available."""
         async for chunk in self._buffer.iter():
             yield chunk
 
     async def wait_complete(self) -> None:
+        """Wait until the stream is complete."""
         await self._buffer.wait_complete()
+
+    @property
+    def is_complete(self) -> bool:
+        """Check if the stream has completed."""
+        return self._buffer.is_complete()
+
+    def _get_text_from_event(self, event: Any) -> Optional[str]:
+        """Extract text from the final event. Subclasses must override."""
+        raise NotImplementedError
+
+    def _get_buffered_text(self) -> Optional[str]:
+        """Get combined text from buffer items."""
+        if self._buffer.has_items():
+            return "".join(self._buffer.items)
+        return None
+
+
+class AssistantMessageStream(_BaseTextStream):
+    """Aggregated assistant message with streaming access to deltas."""
+
+    _final_event: Optional[AgentMessageEvent]
+
+    def _get_text_from_event(self, event: AgentMessageEvent) -> Optional[str]:
+        """Extract message text from AgentMessageEvent."""
+        return event.message
 
     @property
     def message(self) -> Optional[str]:
+        """Get the complete assistant message."""
         if self._final_event:
             return self._final_event.message
-        if self._buffer.has_items():
-            return "".join(self._buffer.items)
-        return None
-
-    @property
-    def is_complete(self) -> bool:
-        return self._buffer.is_complete()
+        return self._get_buffered_text()
 
 
-class ReasoningStream:
+class ReasoningStream(_BaseTextStream):
     """Aggregated reasoning stream similar to assistant message handling."""
 
-    def __init__(self, sequence: int, conversation_id: Optional[str]) -> None:
-        self.sequence = sequence
-        self.conversation_id = conversation_id
-        self._buffer: _AsyncStreamBuffer[str] = _AsyncStreamBuffer()
-        self._final_event: Optional[AgentReasoningEvent] = None
+    _final_event: Optional[AgentReasoningEvent]
 
-    def add_delta(self, delta: str) -> None:
-        self._buffer.append(delta)
-
-    def complete(self, event: AgentReasoningEvent) -> None:
-        self._final_event = event
-        if not self._buffer.has_items() and event.text:
-            self._buffer.append(event.text)
-        self._buffer.finish()
-
-    async def stream(self) -> AsyncIterator[str]:
-        async for chunk in self._buffer.iter():
-            yield chunk
-
-    async def wait_complete(self) -> None:
-        await self._buffer.wait_complete()
+    def _get_text_from_event(self, event: AgentReasoningEvent) -> Optional[str]:
+        """Extract reasoning text from AgentReasoningEvent."""
+        return event.text
 
     @property
     def text(self) -> Optional[str]:
+        """Get the complete reasoning text."""
         if self._final_event:
             return self._final_event.text
-        if self._buffer.has_items():
-            return "".join(self._buffer.items)
-        return None
-
-    @property
-    def is_complete(self) -> bool:
-        return self._buffer.is_complete()
+        return self._get_buffered_text()
 
 
 class CommandStream:
@@ -399,8 +407,14 @@ async def structured(chat: AsyncIterator[EventMsg]) -> AsyncIterator[AggregatedC
             ...
 
     This function is kept for backward compatibility and simply passes through
-    the chat iterator unchanged.
+    the chat iterator unchanged. It will be removed in v1.0.0.
     """
+    warnings.warn(
+        "structured() is deprecated and will be removed in v1.0.0. "
+        "Simply iterate over the Chat instance directly - it already yields structured events.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     async for event in chat:
         yield event  # type: ignore[misc]
 

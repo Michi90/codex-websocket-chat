@@ -71,11 +71,15 @@ class BaseTool:
     @property
     def connection_url(self) -> str:
         """Get MCP connection URL."""
+        if self._port is None:
+            raise RuntimeError("Server has been shut down")
         return f"http://{self._host}:{self._port}/mcp"
 
     @property
     def health_url(self) -> str:
         """Get health check URL."""
+        if self._port is None:
+            raise RuntimeError("Server has been shut down")
         return f"http://{self._host}:{self._port}/health"
 
     def __enter__(self):
@@ -101,6 +105,17 @@ class BaseTool:
             self._port = None
 
     def __del__(self):
-        """Clean up server resources when tool is destroyed."""
+        """Clean up server resources when tool is destroyed.
+
+        Warning: Relying on __del__ for cleanup is unreliable.
+        Use 'with' statement or call shutdown() explicitly.
+        """
         if hasattr(self, '_server') and self._server:
+            import warnings
+            warnings.warn(
+                f"{self.__class__.__name__} was not properly closed. "
+                "Use 'with' statement or call shutdown() explicitly.",
+                ResourceWarning,
+                stacklevel=2
+            )
             self._server.cleanup()

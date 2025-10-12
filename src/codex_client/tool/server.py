@@ -9,6 +9,8 @@ from typing import Any, Callable, List, Optional, Tuple
 import httpx
 from fastmcp import FastMCP
 
+from ..exceptions import ConnectionError as CodexConnectionError
+
 
 class MCPServer:
     """HTTP server for MCP tool endpoints using FastMCP."""
@@ -35,9 +37,9 @@ class MCPServer:
                 port = s.getsockname()[1]
                 return port
         except socket.error as e:
-            raise ConnectionError(f"Failed to bind to host {host}: {e}") from e
+            raise CodexConnectionError(f"Failed to bind to host {host}: {e}") from e
         except Exception as e:
-            raise ConnectionError(f"Socket operation failed: {e}") from e
+            raise CodexConnectionError(f"Socket operation failed: {e}") from e
 
     def _collect_tool_methods(self) -> List[Tuple[Callable, dict]]:
         """Collect all methods marked with @tool decorator."""
@@ -136,12 +138,38 @@ class MCPServer:
                 last_err = e
             time.sleep(0.1)
 
-        raise ConnectionError(
+        raise CodexConnectionError(
             f"MCP server not ready at {health_url} after {timeout}s (last error: {last_err})"
         )
 
+    @property
+    def is_ready(self) -> bool:
+        """Check if server is ready to accept requests."""
+        return self._ready
+
+    @property
+    def mcp_app(self) -> Optional[FastMCP]:
+        """Get the FastMCP application instance (for debugging/monitoring)."""
+        return self._mcp_app
+
     def cleanup(self):
-        """Clean up server resources."""
+        """Clean up server resources.
+
+        Note: This cleanup is currently incomplete. FastMCP doesn't provide
+        a public API to gracefully stop the underlying uvicorn server, so:
+        - The HTTP server continues running on the bound port
+        - Resources are not fully released
+        - The daemon thread continues executing
+
+        This should be improved when FastMCP exposes proper shutdown hooks.
+        Tracking issue: https://github.com/jlowin/fastmcp/issues/TBD
+
+        Current workaround: The thread is marked as daemon so it won't block
+        process exit, but resources won't be cleaned up until the process ends.
+        """
         # Thread is daemon, will be cleaned up automatically
         self._ready = False
         self._server_thread = None
+        self._mcp_app = None
+        # TODO: Add proper server shutdown when FastMCP supports it
+        # Ideal: self._mcp_app.shutdown() or similar

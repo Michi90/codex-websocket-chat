@@ -9,6 +9,11 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Type, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 
+# Constants
+
+NANOS_PER_SECOND = 1_000_000_000
+
+
 # Supporting Types
 
 class Duration(BaseModel):
@@ -19,7 +24,7 @@ class Duration(BaseModel):
 
     def total_seconds(self) -> float:
         """Return the duration expressed as seconds."""
-        return self.secs + self.nanos / 1_000_000_000
+        return self.secs + self.nanos / NANOS_PER_SECOND
 
 
 class TokenUsage(BaseModel):

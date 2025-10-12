@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncIterator, List, Optional, TYPE_CHECKING, Union
+import re
+from typing import Any, AsyncIterator, Dict, List, Optional, TYPE_CHECKING, Union
 
 from .event import (
     CodexEventMsg,
@@ -28,7 +29,6 @@ class Chat:
 
         self._result_or_task: Optional[Any] = None
         self._result_cache: Optional[Any] = None
-        self._task_completed = False
 
         # Event storage - can contain either raw events or aggregated events
         self._structured_mode = structured
@@ -88,14 +88,6 @@ class Chat:
         )
         await self._launch_tool(tool_name, tool_args)
 
-    def raw(self) -> "RawEventIterator":
-        """Return an iterator that yields raw events instead of structured aggregated events.
-
-        This provides access to low-level delta events for advanced use cases.
-        Note: This creates a separate view of events - you should iterate either the
-        main Chat or the raw() iterator, not both.
-        """
-        return RawEventIterator(self)
 
     @property
     def conversation_id(self) -> Optional[str]:
@@ -121,7 +113,6 @@ class Chat:
 
         self._result_or_task = task
         self._result_cache = None
-        self._task_completed = False
 
         self._events = []
         self._iter_index = 0
@@ -208,7 +199,6 @@ class Chat:
             try:
                 result = await result_or_task
                 self._result_cache = result
-                self._task_completed = True
 
                 conversation_id = self._extract_conversation_id(result)
                 if conversation_id:
@@ -216,7 +206,6 @@ class Chat:
 
                 return result
             except Exception:
-                self._task_completed = True
                 raise
 
         self._result_cache = result_or_task
@@ -238,7 +227,6 @@ class Chat:
 
     def _handle_tool_completion(self, task: asyncio.Task) -> None:
         """Handle completion (success or failure) of the Codex tool invocation."""
-        self._task_completed = True
         self._events_complete = True
 
         if task.cancelled():
@@ -253,8 +241,6 @@ class Chat:
 
     @staticmethod
     def _extract_conversation_id(result: Any) -> Optional[str]:
-        import re
-
         if not (hasattr(result, "content") and result.content):
             return None
 
@@ -262,7 +248,7 @@ class Chat:
             if hasattr(content_item, "text"):
                 text = content_item.text
 
-                uuid_pattern = r"\\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\\b"
+                uuid_pattern = r"\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b"
                 matches = re.findall(uuid_pattern, text, re.IGNORECASE)
                 if matches:
                     return matches[0]
@@ -271,23 +257,3 @@ class Chat:
 
     def __del__(self) -> None:
         self._cancel_pending_tasks()
-
-
-class RawEventIterator:
-    """Iterator wrapper that provides access to raw events from a Chat in structured mode.
-
-    Note: If the Chat was created with structured=False, this will error since
-    raw events are already being yielded by the main Chat iterator.
-    """
-
-    def __init__(self, chat: Chat) -> None:
-        if not chat._structured_mode:
-            raise ValueError(
-                "Chat is already in raw mode. Use the main Chat iterator directly "
-                "instead of calling raw()."
-            )
-        raise NotImplementedError(
-            "The raw() method requires creating a new Chat with structured=False. "
-            "This is not yet implemented. For now, create the chat with "
-            "Client.create_chat(..., structured=False) if you need raw events."
-        )
