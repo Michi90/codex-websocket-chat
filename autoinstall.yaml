@@ -1,0 +1,46 @@
+#cloud-config
+autoinstall:
+  version: 1
+  locale: de_DE.UTF-8
+  keyboard: {layout: de, variant: ''}
+  identity:
+    hostname: ruby-surface
+    username: ruby
+    password: "$6$rubysalt$DNBAC11MpHaorcUvdPhQr0UgjF/hwsTS7VFmjPucXH0Jr4OhabbTMVgZLee9RAQt/yf1Lj/HuHLfpVKCUGFsF0" # 12345678
+  ssh: {install-server: true, allow-pw: true}
+  storage: {layout: {name: direct}}   # ganze Platte, destruktiv
+  packages:
+    - ubuntu-desktop-minimal
+    - build-essential
+    - dkms
+    - linux-headers-generic
+    - git
+    - pkg-config
+    - libpcap-dev
+    - libdrm-dev
+    - libcairo2-dev
+    - libsdl2-dev
+    - ffmpeg
+    - iw
+    - net-tools
+    - ethtool
+    - tmux
+
+  user-data:
+    timezone: Europe/Berlin
+    ssh_pwauth: true
+    disable_root: false
+    chpasswd: {expire: false}
+    users:
+      - name: ruby
+        gecos: RubyFPV
+        groups: [adm,cdrom,sudo,dip,plugdev,video,input]
+        sudo: ALL=(ALL) NOPASSWD:ALL
+        shell: /bin/bash
+        passwd: "$6$rubysalt$DNBAC11MpHaorcUvdPhQr0UgjF/hwsTS7VFmjPucXH0Jr4OhabbTMVgZLee9RAQt/yf1Lj/HuHLfpVKCUGFsF0" # 12345678
+    runcmd:
+      - echo "root:12345678" | chpasswd
+  late-commands:
+    - curtin in-target --target=/target sh -c "mkdir -p /etc/systemd/system/getty@tty1.service.d && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin ruby --noclear %I \\$TERM\n' > /etc/systemd/system/getty@tty1.service.d/override.conf"
+    - curtin in-target --target=/target sh -c "echo 'PermitRootLogin yes' > /etc/ssh/sshd_config.d/10-root.conf"
+    - curtin in-target --target=/target systemctl disable ufw
